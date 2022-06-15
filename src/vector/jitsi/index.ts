@@ -300,12 +300,12 @@ function createJWTToken() {
     );
 }
 
-async function notifyHangup() {
+async function notifyHangup(errorMessage?: string) {
     if (widgetApi) {
         // We send the hangup event before setAlwaysOnScreen, because the latter
         // can cause the receiving side to instantly stop listening.
         try {
-            await widgetApi.transport.send(ElementWidgetActions.HangupCall, {});
+            await widgetApi.transport.send(ElementWidgetActions.HangupCall, { errorMessage });
         } finally {
             await widgetApi.setAlwaysOnScreen(false);
         }
@@ -394,6 +394,16 @@ function joinConference(audioDevice?: string, videoDevice?: string) {
     // fires once when user joins the conference
     // (regardless of video on or off)
     meetApi.on("videoConferenceJoined", () => {
+        // Although we set our displayName with the userInfo option above, that
+        // option has a bug where it causes the name to be the HTML encoding of
+        // what was actually intended. So, we use the displayName command to at
+        // least ensure that the name is correct after entering the meeting.
+        // https://github.com/jitsi/jitsi-meet/issues/11664
+        // We can't just use these commands immediately after creating the
+        // iframe, because there's *another* bug where they can crash Jitsi by
+        // racing with its startup process.
+        if (displayName) meetApi.executeCommand("displayName", displayName);
+        // This doesn't have a userInfo equivalent, so has to be set via commands
         if (avatarUrl) meetApi.executeCommand("avatarUrl", avatarUrl);
 
         if (widgetApi) {
@@ -418,7 +428,7 @@ function joinConference(audioDevice?: string, videoDevice?: string) {
         if (error.isFatal) {
             // We got disconnected. Since Jitsi Meet might send us back to the
             // prejoin screen, we're forced to act as if we hung up entirely.
-            notifyHangup();
+            notifyHangup(error.message);
             meetApi = null;
             closeConference();
         }
